@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>나의 지식 연결망</title>
+    <!-- Tailwind CSS 로드 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- D3.js v7 로드 (필수) -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        /* 기본 폰트 및 배경 설정 */
+        body {
+            font-family: 'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+            overflow: hidden; /* 스크롤바 숨기기 */
+        }
+        
+        /* D3.js로 생성될 SVG 요소 스타일 */
+        #graph-container {
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* 링크(선) 스타일 */
+        .link {
+            stroke: #999;
+            stroke-opacity: 0.6;
+            transition: stroke-opacity 0.3s, stroke 0.3s;
+        }
+
+        /* 노드(점) 스타일 */
+        .node {
+            cursor: pointer;
+            stroke: #fff;
+            stroke-width: 2px;
+            transition: opacity 0.3s, transform 0.3s;
+        }
+
+        /* 라벨(텍스트) 스타일 */
+        .label {
+            font-size: 10px; /* 긴 텍스트를 위해 폰트 크기 살짝 줄임 */
+            fill: #333;
+            pointer-events: none; /* 텍스트가 마우스 이벤트를 가로채지 않도록 설정 */
+            text-anchor: middle; /* 텍스트 중앙 정렬 */
+            paint-order: stroke; /* 텍스트 외곽선 먼저 그리도록 (가독성) */
+            stroke: white;
+            stroke-width: 2px;
+            stroke-linecap: butt;
+            stroke-linejoin: miter;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+
+    <!-- 그래프가 그려질 컨테이너 -->
+    <div id="graph-container"></div>
+
+    <script type="module">
+        // --- 1. 데이터 정의 ---
+        // 요청하신 URL로 루트 노드와 '책' 하위 노드들을 업데이트했습니다.
+        const data = {
+            nodes: [
+                // Root (Level 0) - URL 업데이트됨
+                { id: "로코씨의 파이썬 라이브러리", group: 1, url: "https://blog.naver.com/klop0909" },
+                
+                // Level 1
+                { id: "기초", group: 2, url: "/basics" },
+                { id: "책", group: 2, url: "/books" },
+
+                // Level 2 (under '기초')
+                { id: "자료형", group: 3, url: "https://blog.naver.com/klop0909/224042038928" },
+                { id: "변수", group: 3, url: "https://blog.naver.com/klop0909/224042059198" },
+                { id: "제어문", group: 3, url: "https://blog.naver.com/klop0909/224043278792" },
+                { id: "함수와 입출력", group: 3, url: "https://blog.naver.com/klop0909/224044373434" },
+                { id: "클래스", group: 3, url: "https://blog.naver.com/klop0909/224049954110" },
+                { id: "모듈", group: 3, url: "https://blog.naver.com/klop0909/224049964414" },
+
+                // Level 2 (under '책') - URL 업데이트됨
+                { id: "그림으로배우는파이썬기초문법", group: 4, url: "https://blog.naver.com/klop0909/223235784301" },
+                { id: "셜록홈즈의 만화로배우는파이썬", group: 4, url: "https://blog.naver.com/klop0909/223263439711" },
+                { id: "doit첫파이썬", group: 4, url: "https://blog.naver.com/klop0909/224040711175" },
+                { id: "파이썬으로무인도탈출하기", group: 4, url: "https://blog.naver.com/klop0909/224041687428" },
+                { id: "미래의프로그래머를위한파이썬무작정따라하기", group: 4, url: "https://blog.naver.com/klop0909/224042853386" },
+            ],
+            links: [
+                // Root to Level 1
+                { source: "로코씨의 파이썬 라이브러리", target: "기초" },
+                { source: "로코씨의 파이썬 라이브러리", target: "책" },
+
+                // '기초' to Level 2
+                { source: "기초", target: "자료형" },
+                { source: "기초", target: "변수" },
+                { source: "기초", target: "제어문" },
+                { source: "기초", target: "함수와 입출력" },
+                { source: "기초", target: "클래스" },
+                { source: "기초", target: "모듈" },
+
+                // '책' to Level 2
+                { source: "책", target: "그림으로배우는파이썬기초문법" },
+                { source: "책", target: "셜록홈즈의 만화로배우는파이썬" },
+                { source: "책", target: "doit첫파이썬" },
+                { source: "책", target: "파이썬으로무인도탈출하기" },
+                { source: "책", target: "미래의프로그래머를위한파이썬무작정따라하기" },
+            ]
+        };
+
+        // --- 2. D3.js 설정 ---
+
+        // 컨테이너 크기 가져오기
+        const container = document.getElementById('graph-container');
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+
+        // SVG 캔버스 생성
+        const svg = d3.select("#graph-container")
+            .append("svg")
+            .attr("viewBox", [0, 0, width, height])
+            .style("width", "100%")
+            .style("height", "100%");
+
+        // 색상 스케일 (그룹별로 다른 색상)
+        const color = d3.scaleOrdinal(d3.schemeCategory10);
+
+        // 물리 시뮬레이션 설정
+        const simulation = d3.forceSimulation(data.nodes)
+            .force("link", d3.forceLink(data.links).id(d => d.id).distance(120)) // 링크 간 거리 (조금 늘림)
+            .force("charge", d3.forceManyBody().strength(-200)) // 노드 간 밀어내는 힘 (조금 늘림)
+            .force("center", d3.forceCenter(width / 2, height / 2)) // 그래프를 중앙으로
+            .on("tick", ticked); // 시뮬레이션 매 프레임마다 'ticked' 함수 호출
+
+        // 링크(선) 그룹
+        const link = svg.append("g")
+            .attr("class", "links")
+            .selectAll("line")
+            .data(data.links)
+            .enter().append("line")
+            .attr("class", "link");
+
+        // 노드(점) 그룹
+        const node = svg.append("g")
+            .attr("class", "nodes")
+            .selectAll("circle")
+            .data(data.nodes)
+            .enter().append("circle")
+            .attr("class", "node")
+            .attr("r", d => d.id === "로코씨의 파이썬 라이브러리" ? 15 : 10) // '로코씨의 파이썬 라이브러리' 루트 노드를 더 크게
+            .attr("fill", d => color(d.group))
+            .call(drag(simulation)) // 드래그 기능 추가
+            .on("click", onClick) // 클릭 기능 추가
+            .on("mouseover", onMouseOver) // 마우스 오버 기능 추가
+            .on("mouseout", onMouseOut); // 마우스 아웃 기능 추가
+
+        // 라벨(텍스트) 그룹
+        const label = svg.append("g")
+            .attr("class", "labels")
+            .selectAll("text")
+            .data(data.nodes)
+            .enter().append("text")
+            .attr("class", "label")
+            .text(d => d.id)
+            .attr("dy", d => d.id === "로코씨의 파이썬 라이브러리" ? -20 : -15); // 루트 노드 라벨은 조금 더 위로
+
+        // --- 3. 시뮬레이션 및 이벤트 핸들러 ---
+
+        // 시뮬레이션 'tick' 이벤트 (매 프레임마다 위치 업데이트)
+        function ticked() {
+            link
+                .attr("x1", d => d.source.x)
+                .attr("y1", d => d.source.y)
+                .attr("x2", d => d.target.x)
+                .attr("y2", d => d.target.y);
+
+            node
+                .attr("cx", d => d.x)
+                .attr("cy", d => d.y);
+            
+            label
+                .attr("x", d => d.x)
+                .attr("y", d => d.y);
+        }
+
+        // 드래그 기능
+        function drag(simulation) {
+            function dragstarted(event, d) {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                d.fx = d.x;
+                d.fy = d.y;
+            }
+            function dragged(event, d) {
+                d.fx = event.x;
+                d.fy = event.y;
+            }
+            function dragended(event, d) {
+                if (!event.active) simulation.alphaTarget(0);
+                d.fx = null;
+                d.fy = null;
+            }
+            return d3.drag()
+                .on("start", dragstarted)
+                .on("drag", dragged)
+                .on("end", dragended);
+        }
+
+        // 클릭 이벤트 (페이지 이동) - 실제 이동하도록 수정됨
+        function onClick(event, d) {
+            // d.url이 존재하고 비어있지 않은 경우에만 페이지 이동
+            if (d.url && d.url.trim() !== "" && !d.url.startsWith("/")) {
+                // 외부 URL(http로 시작)이거나 내부 링크지만 '/'로 시작하지 않는 경우
+                // 새 탭에서 열도록 수정 (블로그 링크이므로)
+                window.open(d.url, '_blank');
+            } else if (d.url && d.url.startsWith("/")) {
+                // 내부 URL ('/'로 시작)
+                window.location.href = d.url;
+            }
+            else {
+                console.log(`Clicked node: ${d.id}, but no URL is defined.`);
+            }
+        }
+
+        // --- 4. 하이라이트 기능 (요청하신 핵심 기능) ---
+
+        // 이웃 노드인지 확인하기 위한 데이터 구조 생성
+        const linkedByIndex = {};
+        data.links.forEach(d => {
+            // d3.forceLink는 source와 target을 객체로 변환하므로 id를 사용합니다.
+            const sourceId = d.source.id || d.source;
+            const targetId = d.target.id || d.target;
+            linkedByIndex[`${sourceId},${targetId}`] = 1;
+        });
+
+        function isNeighbor(a, b) {
+            return (
+                a.id === b.id || // 자기 자신
+                linkedByIndex[`${a.id},${b.id}`] || // a -> b
+                linkedByIndex[`${b.id},${a.id}`] // b -> a
+            );
+        }
+
+        // 마우스 오버 이벤트
+        function onMouseOver(event, d) {
+            const FADE_OPACITY = 0.1;
+
+            // 모든 노드 희미하게
+            node.style("opacity", n => isNeighbor(d, n) ? 1 : FADE_OPACITY);
+            
+            // 모든 라벨 희미하게
+            label.style("opacity", l => isNeighbor(d, l) ? 1 : FADE_OPACITY);
+
+            // 모든 링크 희미하게
+            link.style("stroke-opacity", l => (l.source === d || l.target === d) ? 1 : FADE_OPACITY);
+            link.style("stroke", l => (l.source === d || l.target === d) ? "#333" : "#999"); // 연결된 선 강조
+        }
+
+        // 마우스 아웃 이벤트
+        function onMouseOut(event, d) {
+            // 모든 요소 원래대로 복구
+            node.style("opacity", 1);
+            label.style("opacity", 1);
+            link.style("stroke-opacity", 0.6);
+            link.style("stroke", "#999");
+        }
+
+    </script>
+
+</body>
+</html>
+
